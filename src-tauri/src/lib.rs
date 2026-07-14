@@ -1,7 +1,6 @@
 mod db;
 mod health;
 mod ironrdp_session;
-mod rdp;
 
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -9,7 +8,6 @@ use tauri::State;
 
 struct AppState {
     db: Mutex<Connection>,
-    rdp: Mutex<rdp::SessionManager>,
     ironrdp: Mutex<ironrdp_session::SessionManager>,
 }
 
@@ -138,6 +136,18 @@ fn send_rdp_input(
     state.ironrdp.lock().unwrap().send_input(session_id, event)
 }
 
+// ── Session finalization (auto-log ended sessions) ──
+
+#[tauri::command]
+fn drain_ended_sessions(state: State<AppState>) -> Vec<ironrdp_session::EndedSession> {
+    state.ironrdp.lock().unwrap().drain_ended()
+}
+
+#[tauri::command]
+fn finalize_session_log(state: State<AppState>, log_id: i64, status: String) {
+    db::log_session_end(&state.db.lock().unwrap(), log_id, &status);
+}
+
 // ── Session History ──
 
 #[tauri::command]
@@ -160,7 +170,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             db: Mutex::new(db_conn),
-            rdp: rdp::new_manager(),
             ironrdp: ironrdp_session::new_manager(),
         })
         .invoke_handler(tauri::generate_handler![
@@ -175,6 +184,8 @@ pub fn run() {
             get_framebuffer,
             send_rdp_input,
             get_session_logs,
+            drain_ended_sessions,
+            finalize_session_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

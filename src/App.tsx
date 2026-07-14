@@ -9,14 +9,14 @@ function App() {
   const {
     connections, healthMap, activeSessions, currentView, showAddModal, editingConnection,
     loadConnections, loadSessionLogs, removeConnection, refreshHealth, refreshSessions,
-    openRdp, closeRdp, setView, setShowAddModal, setEditing,
+    openRdp, closeRdp, drainEndedSessions, setView, setShowAddModal, setEditing,
   } = useStore();
 
   useEffect(() => {
     loadConnections();
     refreshHealth();
     refreshSessions();
-    const id = setInterval(() => { refreshHealth(); refreshSessions(); }, 30_000);
+    const id = setInterval(() => { refreshHealth(); refreshSessions(); drainEndedSessions(); }, 10_000);
     return () => clearInterval(id);
   }, []);
 

@@ -66,19 +66,37 @@ struct Session {
     framebuffer: SharedBuffer,
     input_tx: std::sync::mpsc::Sender<InputEvent>,
     stop_flag: Arc<Mutex<bool>>,
+    status: Arc<Mutex<String>>, // "connected" | "reconnecting" | "disconnected"
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EndedSession {
+    pub session_id: u32,
+    pub connection_id: i64,
+    pub hostname: String,
 }
 
 pub struct SessionManager {
     sessions: HashMap<u32, Session>,
     next_id: u32,
+    ended_rx: std::sync::mpsc::Receiver<EndedSession>,
+    ended_tx: std::sync::mpsc::Sender<EndedSession>,
 }
 
 impl SessionManager {
     pub fn new() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
         Self {
             sessions: HashMap::new(),
             next_id: 1,
+            ended_tx: tx,
+            ended_rx: rx,
         }
+    }
+
+    /// Drain ended sessions for DB logging. Call from Tauri command.
+    pub fn drain_ended(&self) -> Vec<EndedSession> {
+        self.ended_rx.try_iter().collect()
     }
 
     pub fn open(&mut self, config: RdpConfig) -> Result<SessionInfo, String> {
@@ -90,24 +108,32 @@ impl SessionManager {
         let framebuffer: SharedBuffer =
             Arc::new(RwLock::new(vec![0xFF000000u32; w as usize * h as usize]));
         let stop_flag = Arc::new(Mutex::new(false));
+        let status = Arc::new(Mutex::new("connecting".to_string()));
         let (input_tx, input_rx) = std::sync::mpsc::channel::<InputEvent>();
+        let input_rx = Arc::new(Mutex::new(input_rx));
 
         let fb = framebuffer.clone();
         let stop = stop_flag.clone();
+        let st = status.clone();
         let hostname = config.hostname.clone();
         let conn_id = config.connection_id;
 
+        let ended_tx = self.ended_tx.clone();
+        let ended_info = EndedSession {
+            session_id,
+            connection_id: conn_id,
+            hostname: hostname.clone(),
+        };
         thread::spawn(move || {
-            if let Err(e) = run_rdp_session(config, fb, stop, input_rx) {
-                tracing::error!("RDP session error: {}", e);
-            }
+            run_rdp_with_reconnect(config, fb, stop, input_rx, st);
+            let _ = ended_tx.send(ended_info);
         });
 
         let info = SessionInfo {
             session_id,
             connection_id: conn_id,
             hostname,
-            status: "connected".to_string(),
+            status: "connecting".to_string(),
             width: w,
             height: h,
         };
@@ -119,6 +145,7 @@ impl SessionManager {
                 framebuffer,
                 input_tx,
                 stop_flag,
+                status,
             },
         );
 
@@ -128,6 +155,7 @@ impl SessionManager {
     pub fn close(&mut self, session_id: u32) -> Result<(), String> {
         if let Some(session) = self.sessions.remove(&session_id) {
             *session.stop_flag.lock().unwrap() = true;
+            *session.status.lock().unwrap() = "disconnected".to_string();
             Ok(())
         } else {
             Err("Session not found".to_string())
@@ -153,17 +181,94 @@ impl SessionManager {
     }
 
     pub fn list_active(&self) -> Vec<SessionInfo> {
-        self.sessions.values().map(|s| s.info.clone()).collect()
+        self.sessions
+            .values()
+            .map(|s| {
+                let mut info = s.info.clone();
+                info.status = s.status.lock().unwrap().clone();
+                info
+            })
+            .collect()
     }
 }
 
-// ── RDP session thread ──
+// ── RDP session thread with auto-reconnect ──
+
+fn run_rdp_with_reconnect(
+    config: RdpConfig,
+    framebuffer: SharedBuffer,
+    stop_flag: Arc<Mutex<bool>>,
+    input_rx: Arc<Mutex<std::sync::mpsc::Receiver<InputEvent>>>,
+    status: Arc<Mutex<String>>,
+) {
+    let max_retries = 10u32;
+    let mut retry = 0u32;
+    let mut delay = Duration::from_secs(1);
+    let max_delay = Duration::from_secs(30);
+
+    loop {
+        if *stop_flag.lock().unwrap() {
+            break;
+        }
+
+        *status.lock().unwrap() = if retry == 0 {
+            "connected".to_string()
+        } else {
+            format!("reconnecting ({}/{})", retry, max_retries)
+        };
+
+        // Clear framebuffer on reconnect
+        if retry > 0 {
+            if let Ok(mut fb) = framebuffer.write() {
+                fb.fill(0xFF000000);
+            }
+        }
+
+        match run_rdp_session(
+            config.clone(),
+            framebuffer.clone(),
+            stop_flag.clone(),
+            input_rx.clone(),
+        ) {
+            Ok(()) => {
+                // Clean exit (server terminated or stop_flag set)
+                if *stop_flag.lock().unwrap() {
+                    break;
+                }
+                tracing::info!("RDP session ended, retrying...");
+            }
+            Err(e) => {
+                tracing::warn!("RDP session error: {}", e);
+            }
+        }
+
+        retry += 1;
+        if retry > max_retries {
+            tracing::error!("Max reconnect attempts reached for {}", config.hostname);
+            break;
+        }
+
+        *status.lock().unwrap() = format!("reconnecting ({}/{})", retry, max_retries);
+        // ponytail: sleep in small chunks so stop_flag is checked promptly
+        let mut elapsed = Duration::ZERO;
+        while elapsed < delay {
+            if *stop_flag.lock().unwrap() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(200));
+            elapsed += Duration::from_millis(200);
+        }
+        delay = (delay * 2).min(max_delay);
+    }
+
+    *status.lock().unwrap() = "disconnected".to_string();
+}
 
 fn run_rdp_session(
     config: RdpConfig,
     framebuffer: SharedBuffer,
     stop_flag: Arc<Mutex<bool>>,
-    input_rx: std::sync::mpsc::Receiver<InputEvent>,
+    input_rx: Arc<Mutex<std::sync::mpsc::Receiver<InputEvent>>>,
 ) -> anyhow::Result<()> {
     use ironrdp_connector::credssp::KerberosConfig;
 
@@ -200,7 +305,7 @@ fn run_rdp_session(
         hardware_id: None,
         request_data: None,
         autologon: false,
-        enable_audio_playback: false,
+        enable_audio_playback: true,
         performance_flags: PerformanceFlags::empty(),
         compression_type: None,
         enable_server_pointer: false,
@@ -261,7 +366,7 @@ fn run_rdp_session(
         }
 
         // Process pending input
-        while let Ok(event) = input_rx.try_recv() {
+        while let Ok(event) = input_rx.lock().unwrap().try_recv() {
             if let Some(events) = encode_input_event(&event) {
                 write_buf.clear();
                 match active_stage.process_fastpath_input(&mut image, &events) {

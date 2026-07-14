@@ -60,6 +60,7 @@ interface Store {
   setView: (view: View) => void;
   setEditing: (conn: ConnectionProfile | null) => void;
   setShowAddModal: (show: boolean) => void;
+  drainEndedSessions: () => Promise<void>;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -147,6 +148,15 @@ export const useStore = create<Store>((set, get) => ({
   loadSessionLogs: async () => {
     const logs = await invoke<SessionLog[]>('get_session_logs');
     set({ sessionLogs: logs });
+  },
+
+  drainEndedSessions: async () => {
+    const ended = await invoke<{session_id: number, connection_id: number, hostname: string}[]>('drain_ended_sessions');
+    for (const s of ended) {
+      // Log each ended session
+      await invoke('finalize_session_log', { logId: s.connection_id, status: 'disconnected' }).catch(() => {});
+    }
+    if (ended.length > 0) get().refreshSessions();
   },
 
   setView: (view) => set({ currentView: view }),
