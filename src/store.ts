@@ -21,10 +21,27 @@ export interface SessionLog {
   status: string;
 }
 
+export interface HealthResult {
+  id: number;
+  hostname: string;
+  port: number;
+  status: 'online' | 'offline';
+}
+
+export interface SessionInfo {
+  session_id: number;
+  connection_id: number;
+  hostname: string;
+  pid: number;
+  status: string;
+}
+
 type View = 'dashboard' | 'history';
 
 interface Store {
   connections: ConnectionProfile[];
+  healthMap: Record<number, 'online' | 'offline' | 'checking'>;
+  activeSessions: SessionInfo[];
   sessionLogs: SessionLog[];
   currentView: View;
   editingConnection: ConnectionProfile | null;
@@ -34,14 +51,20 @@ interface Store {
   addConnection: (data: Omit<ConnectionProfile, 'id'>) => Promise<void>;
   updateConnection: (data: ConnectionProfile) => Promise<void>;
   removeConnection: (id: number) => Promise<void>;
+  refreshHealth: () => Promise<void>;
+  openRdp: (connectionId: number) => Promise<void>;
+  closeRdp: (sessionId: number) => Promise<void>;
+  refreshSessions: () => Promise<void>;
   loadSessionLogs: () => Promise<void>;
   setView: (view: View) => void;
   setEditing: (conn: ConnectionProfile | null) => void;
   setShowAddModal: (show: boolean) => void;
 }
 
-export const useStore = create<Store>((set) => ({
+export const useStore = create<Store>((set, get) => ({
   connections: [],
+  healthMap: {},
+  activeSessions: [],
   sessionLogs: [],
   currentView: 'dashboard',
   editingConnection: null,
@@ -60,8 +83,8 @@ export const useStore = create<Store>((set) => ({
       user: data.username,
       pass: data.password,
     });
-    const conns = await invoke<ConnectionProfile[]>('get_connections');
-    set({ connections: conns });
+    await get().loadConnections();
+    get().refreshHealth();
   },
 
   updateConnection: async (data) => {
@@ -73,14 +96,39 @@ export const useStore = create<Store>((set) => ({
       user: data.username,
       pass: data.password,
     });
-    const conns = await invoke<ConnectionProfile[]>('get_connections');
-    set({ connections: conns });
+    await get().loadConnections();
+    get().refreshHealth();
   },
 
   removeConnection: async (id) => {
     await invoke('remove_connection', { id });
-    const conns = await invoke<ConnectionProfile[]>('get_connections');
-    set({ connections: conns });
+    await get().loadConnections();
+  },
+
+  refreshHealth: async () => {
+    const results = await invoke<HealthResult[]>('check_all_servers');
+    const map: Record<number, 'online' | 'offline'> = {};
+    for (const r of results) map[r.id] = r.status;
+    set({ healthMap: map });
+  },
+
+  openRdp: async (connectionId) => {
+    try {
+      await invoke('open_rdp_session', { connectionId });
+      get().refreshSessions();
+    } catch (e) {
+      alert(`RDP Error: ${e}`);
+    }
+  },
+
+  closeRdp: async (sessionId) => {
+    await invoke('close_rdp_session', { sessionId });
+    get().refreshSessions();
+  },
+
+  refreshSessions: async () => {
+    const sessions = await invoke<SessionInfo[]>('get_active_sessions');
+    set({ activeSessions: sessions });
   },
 
   loadSessionLogs: async () => {

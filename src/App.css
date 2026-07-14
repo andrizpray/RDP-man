@@ -60,6 +60,15 @@ body {
 }
 .header nav button:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .header nav button.active { color: var(--primary); background: rgba(79,195,247,0.1); }
+.badge-count {
+  background: var(--primary);
+  color: #000;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
 
 /* Dashboard */
 .dashboard { padding: 24px; flex: 1; overflow-y: auto; }
@@ -70,6 +79,7 @@ body {
   margin-bottom: 20px;
 }
 .toolbar h2 { font-size: 16px; font-weight: 500; color: var(--text-dim); }
+.toolbar-actions { display: flex; gap: 8px; }
 
 /* Server Grid */
 .server-grid {
@@ -103,6 +113,16 @@ body {
 .status-online { background: var(--success); box-shadow: 0 0 6px var(--success); }
 .status-offline { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
 .status-checking { background: var(--text-dim); animation: pulse 1.5s infinite; }
+.badge-live {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--success);
+  background: rgba(102,187,106,0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.server-card-active { border-color: var(--success); }
 
 @keyframes pulse {
   0%, 100% { opacity: 0.4; }
@@ -142,7 +162,20 @@ body {
   font-weight: 600;
   flex: 1;
 }
-.btn-connect:hover { opacity: 0.85; }
+.btn-connect:hover:not(:disabled) { opacity: 0.85; }
+.btn-connect:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-disconnect {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  flex: 1;
+}
+.btn-disconnect:hover { opacity: 0.85; }
 .btn-icon {
   background: none;
   border: none;

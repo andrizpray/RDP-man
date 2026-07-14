@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +49,12 @@ pub fn init_db(conn: &Connection) {
 }
 
 pub fn create_connection(
-    conn: &Connection, name: &str, host: &str, port: i32, user: &str, pass: &str,
+    conn: &Connection,
+    name: &str,
+    host: &str,
+    port: i32,
+    user: &str,
+    pass: &str,
 ) -> i64 {
     conn.execute(
         "INSERT INTO connections (display_name, hostname, port, username, password) VALUES (?1,?2,?3,?4,?5)",
@@ -59,25 +64,33 @@ pub fn create_connection(
 }
 
 pub fn list_connections(conn: &Connection) -> Vec<ConnectionProfile> {
-    conn.prepare("SELECT id, display_name, hostname, port, username, password FROM connections ORDER BY id")
-        .unwrap()
-        .query_map([], |row| {
-            Ok(ConnectionProfile {
-                id: row.get(0)?,
-                display_name: row.get(1)?,
-                hostname: row.get(2)?,
-                port: row.get(3)?,
-                username: row.get(4)?,
-                password: row.get(5)?,
-            })
+    conn.prepare(
+        "SELECT id, display_name, hostname, port, username, password FROM connections ORDER BY id",
+    )
+    .unwrap()
+    .query_map([], |row| {
+        Ok(ConnectionProfile {
+            id: row.get(0)?,
+            display_name: row.get(1)?,
+            hostname: row.get(2)?,
+            port: row.get(3)?,
+            username: row.get(4)?,
+            password: row.get(5)?,
         })
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+    })
+    .unwrap()
+    .filter_map(|r| r.ok())
+    .collect()
 }
 
 pub fn update_connection(
-    conn: &Connection, id: i64, name: &str, host: &str, port: i32, user: &str, pass: &str,
+    conn: &Connection,
+    id: i64,
+    name: &str,
+    host: &str,
+    port: i32,
+    user: &str,
+    pass: &str,
 ) {
     conn.execute(
         "UPDATE connections SET display_name=?1, hostname=?2, port=?3, username=?4, password=?5, updated_at=datetime('now') WHERE id=?6",
@@ -86,7 +99,8 @@ pub fn update_connection(
 }
 
 pub fn delete_connection(conn: &Connection, id: i64) {
-    conn.execute("DELETE FROM connections WHERE id=?1", params![id]).unwrap();
+    conn.execute("DELETE FROM connections WHERE id=?1", params![id])
+        .unwrap();
 }
 
 #[allow(dead_code)]
