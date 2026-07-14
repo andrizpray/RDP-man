@@ -32,8 +32,9 @@ export interface SessionInfo {
   session_id: number;
   connection_id: number;
   hostname: string;
-  pid: number;
   status: string;
+  width: number;
+  height: number;
 }
 
 type View = 'dashboard' | 'history';
@@ -124,6 +125,18 @@ export const useStore = create<Store>((set, get) => ({
   closeRdp: async (sessionId) => {
     await invoke('close_rdp_session', { sessionId });
     get().refreshSessions();
+  },
+
+  getFrameBuffer: async (sessionId: number): Promise<Uint32Array | null> => {
+    try {
+      return await invoke<Uint32Array>('get_framebuffer', { sessionId });
+    } catch {
+      return null;
+    }
+  },
+
+  sendRdpInput: async (sessionId: number, event: { event_type: string; x: number; y: number; button: number; key_code: number; is_down: boolean }) => {
+    await invoke('send_rdp_input', { sessionId, event });
   },
 
   refreshSessions: async () => {

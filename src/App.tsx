@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useStore, type ConnectionProfile } from './store';
 import { ConnectionForm } from './components/ConnectionForm';
 import { HistoryView } from './components/HistoryView';
+import { RdpViewer } from './components/RdpViewer';
 import './App.css';
 
 function App() {
@@ -35,38 +36,53 @@ function App() {
         </nav>
       </header>
 
-      {currentView === 'dashboard' ? (
-        <main className="dashboard">
-          <div className="toolbar">
-            <h2>Servers ({connections.length})</h2>
-            <div className="toolbar-actions">
-              <button className="btn-secondary" onClick={refreshHealth}>↻ Refresh</button>
-              <button className="btn-primary" onClick={() => { setEditing(null); setShowAddModal(true); }}>+ Add Server</button>
-            </div>
-          </div>
+       {currentView === 'dashboard' && (
+         <>
+           {activeSessions.length === 0 ? (
+             <main className="dashboard">
+               <div className="toolbar">
+                 <h2>Servers ({connections.length})</h2>
+                 <div className="toolbar-actions">
+                   <button className="btn-secondary" onClick={refreshHealth}>↻ Refresh</button>
+                   <button className="btn-primary" onClick={() => { setEditing(null); setShowAddModal(true); }}>+ Add Server</button>
+                 </div>
+               </div>
 
-          {connections.length === 0 ? (
-            <div className="empty">No servers yet. Click "+ Add Server" to get started.</div>
-          ) : (
-            <div className="server-grid">
-              {connections.map((conn) => (
-                <ServerCard
-                  key={conn.id}
-                  conn={conn}
-                  status={healthMap[conn.id] ?? 'checking'}
-                  active={isActive(conn.id)}
-                  onConnect={() => openRdp(conn.id)}
-                  onDisconnect={() => { const sid = getSid(conn.id); if (sid !== undefined) closeRdp(sid); }}
-                  onEdit={() => { setEditing(conn); setShowAddModal(true); }}
-                  onDelete={() => removeConnection(conn.id)}
-                />
-              ))}
-            </div>
-          )}
-        </main>
-      ) : (
-        <HistoryView />
-      )}
+               {connections.length === 0 ? (
+                 <div className="empty">No servers yet. Click "+ Add Server" to get started.</div>
+               ) : (
+                 <div className="server-grid">
+                   {connections.map((conn) => (
+                     <ServerCard
+                       key={conn.id}
+                       conn={conn}
+                       status={healthMap[conn.id] ?? 'checking'}
+                       active={isActive(conn.id)}
+                       onConnect={() => openRdp(conn.id)}
+                       onDisconnect={() => { const sid = getSid(conn.id); if (sid !== undefined) closeRdp(sid); }}
+                       onEdit={() => { setEditing(conn); setShowAddModal(true); }}
+                       onDelete={() => removeConnection(conn.id)}
+                     />
+                   ))}
+                 </div>
+               )}
+             </main>
+           ) : (
+             <div className="rdp-viewer-container">
+               {activeSessions.map((session) => (
+                 <RdpViewer
+                   key={session.session_id}
+                   sessionId={session.session_id}
+                   width={session.width}
+                   height={session.height}
+                   onClose={() => closeRdp(session.session_id)}
+                 />
+               ))}
+             </div>
+           )}
+         </>
+       )}
+       {currentView === 'history' && <HistoryView />}
 
       {showAddModal && (
         <ConnectionForm editing={editingConnection} onClose={() => { setShowAddModal(false); setEditing(null); }} />
