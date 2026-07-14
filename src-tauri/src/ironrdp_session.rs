@@ -316,7 +316,14 @@ fn run_rdp_session(
     };
 
     let client_addr = "0.0.0.0:0".parse().unwrap();
-    let mut connector = ClientConnector::new(connector_config, client_addr);
+    let mut connector = ClientConnector::new(connector_config, client_addr)
+        .with_static_channel(ironrdp_cliprdr::Cliprdr::new(Box::new(
+            crate::clipboard::ClipboardBackend::new(),
+        )))
+        .with_static_channel(ironrdp_rdpdr::Rdpdr::new(
+            Box::new(ironrdp_rdpdr::NoopRdpdrBackend),
+            "RDPMan".to_string(),
+        ));
     let mut framed = Framed::new(stream);
 
     // Handshake

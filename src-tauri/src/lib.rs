@@ -1,3 +1,4 @@
+mod clipboard;
 mod db;
 mod health;
 mod ironrdp_session;
